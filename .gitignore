@@ -1,0 +1,16 @@
+/[Tt][Oo][Dd][Oo].md
+/[Rr][Ee][Ll][Ee][Aa][Ss][Ee].md
+/[Aa][Gg][Ee][Nn][Tt][Ss].md
+/[Mm][Ee][Mm][Oo][Rr][Yy].md
+/.local/
+/output/
+build/
+dist/
+GIFs/
+Sample/
+__pycache__/
+*_steam/
+tools/ffmpeg.exe
+/settings.json
+/settings.tmp
+/update-workspace/

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SteamSlice 로고 원본. 어두운 타일 위의 세로 막대 5개는 결과물의 배치(조각 5개, 간격 4개)를 나타낸다.
+     이 파일을 수정한 뒤에는 python tools/make_icon.py를 실행하여 PNG와 ICO를 다시 만든다. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>SteamSlice</title>
+  <rect width="256" height="256" rx="56" ry="56" fill="#12161d"/>
+  <rect x="48.64"  y="48.64" width="22.53" height="158.72" rx="6.76" fill="#4fd1ff"/>
+  <rect x="82.69"  y="48.64" width="22.53" height="158.72" rx="6.76" fill="#5ab8ff"/>
+  <rect x="116.74" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#669eff"/>
+  <rect x="150.78" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#7185ff"/>
+  <rect x="184.83" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#7c6cff"/>
+</svg>

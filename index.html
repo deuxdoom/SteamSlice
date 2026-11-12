@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SteamSlice · GIF와 동영상을 스팀 프로필 전시대의 다섯 조각으로</title>
+<meta name="description" content="GIF나 동영상의 한 구간을 스팀 프로필 창작마당 전시대의 다섯 조각으로 만드는 Windows 프로그램">
+<meta property="og:title" content="SteamSlice">
+<meta property="og:description" content="One GIF or video clip. Five perfect Steam slices.">
+<meta property="og:image" content="https://deuxdoom.github.io/SteamSlice/assets/social-preview.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#12161d">
+<link rel="icon" type="image/svg+xml" href="assets/steamslice.svg">
+<style>
+  :root {
+    --bg: #12161d; --panel: #1a2230; --line: #263447; --text: #d6dee8; --muted: #8a95a3;
+    --cyan: #4fd1ff; --c2: #5ab8ff; --c3: #669eff; --c4: #7185ff; --violet: #7c6cff; --green: #9bd64a;
+    --ease: cubic-bezier(.2, .8, .2, 1);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Pretendard", "Malgun Gothic", "Segoe UI", system-ui, sans-serif;
+    line-height: 1.65; overflow-x: hidden; -webkit-font-smoothing: antialiased;
+    word-break: keep-all; overflow-wrap: anywhere;   /* 한국어는 단어 단위로 줄을 바꾼다 */
+  }
+  a { color: inherit; text-decoration: none; }
+  .wrap { width: min(1080px, 100% - 40px); margin-inline: auto; }
+
+  /* 배경: 천천히 움직이는 두 개의 빛 */
+  .aurora { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+  .aurora i { position: absolute; width: 60vmax; height: 60vmax; border-radius: 50%; filter: blur(90px); opacity: .22; }
+  .aurora i:nth-child(1) { background: var(--cyan); top: -25vmax; left: -15vmax; animation: drift 22s ease-in-out infinite alternate; }
+  .aurora i:nth-child(2) { background: var(--violet); bottom: -30vmax; right: -20vmax; animation: drift 28s ease-in-out infinite alternate-reverse; }
+  @keyframes drift { to { transform: translate(12vmax, 8vmax) scale(1.15); } }
+
+  /* 상단 */
+  header { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px); background: rgb(18 22 29 / .72); border-bottom: 1px solid rgb(38 52 71 / .6); }
+  header .wrap { display: flex; align-items: center; gap: 12px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: #fff; }
+  .brand svg { width: 30px; height: 30px; }
+  .brand b { color: var(--cyan); font-weight: 700; }
+  header nav { margin-left: auto; display: flex; gap: 22px; font-size: 14px; color: var(--muted); }
+  header nav a:hover { color: #fff; }
+
+  /* 첫 화면 */
+  .hero { padding: 84px 0 56px; text-align: center; }
+  .mark { width: 96px; height: 96px; margin: 0 auto 26px; filter: drop-shadow(0 12px 40px rgb(79 209 255 / .28)); }
+  .mark rect.bar { transform-box: fill-box; transform-origin: center bottom; animation: rise .9s var(--ease) both, pulse 3.2s ease-in-out 1.2s infinite; }
+  .mark rect.bar:nth-of-type(2) { animation-delay: 0s, 1.2s; }
+  .mark rect.bar:nth-of-type(3) { animation-delay: .08s, 1.35s; }
+  .mark rect.bar:nth-of-type(4) { animation-delay: .16s, 1.5s; }
+  .mark rect.bar:nth-of-type(5) { animation-delay: .24s, 1.65s; }
+  .mark rect.bar:nth-of-type(6) { animation-delay: .32s, 1.8s; }
+  @keyframes rise { from { transform: scaleY(0); opacity: 0; } }
+  @keyframes pulse { 50% { transform: scaleY(.82); } }
+  h1 { font-size: clamp(34px, 6vw, 62px); line-height: 1.15; letter-spacing: -.02em; color: #fff; text-wrap: balance; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, var(--cyan), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { margin: 20px auto 0; max-width: 620px; font-size: clamp(16px, 2.2vw, 19px); color: var(--muted); text-wrap: pretty; }
+  .cta { margin-top: 34px; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { padding: 13px 26px; border-radius: 10px; font-weight: 700; font-size: 15px; transition: transform .2s var(--ease), box-shadow .2s, background .2s; }
+  .btn:hover { transform: translateY(-2px); }
+  .btn.primary { background: var(--cyan); color: #0b1220; box-shadow: 0 10px 34px rgb(79 209 255 / .3); }
+  .btn.primary:hover { box-shadow: 0 14px 44px rgb(79 209 255 / .45); }
+  .btn.ghost { background: var(--panel); border: 1px solid var(--line); }
+  .btn.ghost:hover { background: #222c3d; }
+  .github-icon { width: 22px; height: 22px; fill: currentColor; vertical-align: middle; flex: none; }
+  .btn.ghost { display: inline-flex; align-items: center; gap: 9px; }
+  .download-note { margin: 16px auto 0; color: var(--muted); font-size: 14px; }
+  .release-version { color: var(--cyan); border-radius: 4px; padding: 2px 5px; transition: color .18s, background .18s; }
+  .release-version:hover, .release-version:focus-visible { color: #ffdc73; background: rgb(255 220 115 / .12); }
+  .fade { animation: fadeUp .9s var(--ease) both; }
+  .fade.d1 { animation-delay: .15s; } .fade.d2 { animation-delay: .28s; } .fade.d3 { animation-delay: .4s; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } }
+
+  /* 실제 앱 화면: 비율을 유지하고 누르면 원본 크기로 볼 수 있다. */
+  .app-screen { margin: 48px auto 0; text-align: left; }
+  .app-screen > a { display: block; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg); box-shadow: 0 28px 80px rgb(0 0 0 / .4); }
+  .app-screen > a:focus-visible { outline: 3px solid var(--cyan); outline-offset: 5px; }
+  .app-screen img { display: block; width: 100%; height: auto; }
+  .app-screen figcaption { margin-top: 16px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+  .app-screen figcaption strong { color: var(--text); }
+  .app-screen figcaption a { color: var(--cyan); white-space: nowrap; }
+
+  /* 구역 공통 */
+  section { padding: 76px 0; }
+  h2 { font-size: clamp(24px, 3.6vw, 34px); color: #fff; letter-spacing: -.01em; text-align: center; text-wrap: balance; }
+  .sub { margin: 10px auto 0; max-width: 560px; text-align: center; color: var(--muted); }
+
+  .grid { margin-top: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { position: relative; padding: 24px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; transition: transform .25s var(--ease), border-color .25s; }
+  .card::before { /* 마우스를 따라다니는 빛 */
+    content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .25s;
+    background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), rgb(79 209 255 / .16), transparent 60%);
+  }
+  .card:hover { transform: translateY(-4px); border-color: #3a5273; }
+  .card:hover::before { opacity: 1; }
+  .card > * { position: relative; }
+  .card .ico { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: rgb(79 209 255 / .12); color: var(--cyan); margin-bottom: 14px; }
+  .card .ico svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .card h3 { font-size: 17px; color: #fff; }
+  .card p { margin-top: 6px; font-size: 14.5px; color: var(--muted); }
+
+  .steps { margin-top: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; counter-reset: step; }
+  .step { padding: 22px; border-radius: 14px; border: 1px solid var(--line); background: linear-gradient(180deg, rgb(26 34 48 / .9), rgb(26 34 48 / .4)); }
+  .step::before { counter-increment: step; content: counter(step); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; margin-bottom: 12px; font-weight: 700; color: #0b1220; background: linear-gradient(135deg, var(--cyan), var(--violet)); }
+  .step h3 { font-size: 16px; color: #fff; }
+  .step p { margin-top: 4px; font-size: 14px; color: var(--muted); }
+
+  .specs { margin-top: 36px; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .specs div { background: var(--panel); padding: 22px 18px; text-align: center; }
+  .specs strong { display: block; font-size: 26px; color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .specs span { font-size: 13px; color: var(--muted); }
+
+  .final { text-align: center; }
+  .final .box { padding: 54px 24px; border-radius: 20px; border: 1px solid var(--line); background: radial-gradient(120% 140% at 50% 0%, rgb(79 209 255 / .14), transparent 60%), var(--panel); }
+
+  footer { padding: 30px 0 46px; text-align: center; font-size: 13px; color: var(--muted); border-top: 1px solid rgb(38 52 71 / .6); }
+  footer a { color: var(--text); }
+  footer a:hover { color: var(--cyan); }
+
+  /* 스크롤하면 나타나는 효과: 스크롤 연동 애니메이션을 지원하는 브라우저에서는 CSS만으로 동작한다 */
+  .reveal { opacity: 0; transform: translateY(26px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+  .reveal.in { opacity: 1; transform: none; }
+  @supports (animation-timeline: view()) {
+    .reveal { opacity: 1; transform: none; transition: none; animation: revealIn linear both; animation-timeline: view(); animation-range: entry 0% entry 42%; }
+    @keyframes revealIn { from { opacity: 0; transform: translateY(34px) scale(.98); } }
+  }
+
+  @media (max-width: 560px) { header nav a:not(.keep) { display: none; } .hero { padding-top: 56px; } section { padding: 56px 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i></div>
+
+<header>
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="SteamSlice">
+      <svg viewBox="0 0 256 256" aria-hidden="true"><rect width="256" height="256" rx="56" fill="#0b0f15"/><rect x="48.64" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#4fd1ff"/><rect x="82.69" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#5ab8ff"/><rect x="116.74" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#669eff"/><rect x="150.78" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#7185ff"/><rect x="184.83" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#7c6cff"/></svg>
+      <span>Steam<b>Slice</b></span>
+    </a>
+    <nav>
+      <a href="#features">기능</a>
+      <a href="#how">사용 방법</a>
+      <a class="keep" href="https://github.com/deuxdoom/SteamSlice" aria-label="GitHub 저장소" title="GitHub 저장소"><svg class="github-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <div class="hero wrap">
+    <svg class="mark" viewBox="0 0 256 256" role="img" aria-label="SteamSlice 로고">
+      <rect width="256" height="256" rx="56" fill="#0b0f15" stroke="#263447" stroke-width="3"/>
+      <rect class="bar" x="48.64" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#4fd1ff"/>
+      <rect class="bar" x="82.69" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#5ab8ff"/>
+      <rect class="bar" x="116.74" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#669eff"/>
+      <rect class="bar" x="150.78" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#7185ff"/>
+      <rect class="bar" x="184.83" y="48.64" width="22.53" height="158.72" rx="6.76" fill="#7c6cff"/>
+    </svg>
+    <h1 class="fade">GIF 하나를,<br>스팀 프로필의 <em>다섯 조각</em>으로</h1>
+    <p class="lead fade d1">GIF나 동영상의 한 구간을 넣으면, 창작마당 전시대에 꼭 맞는 다섯 조각을 만들고 등록 방법까지 안내합니다.</p>
+    <div class="cta fade d2">
+      <a class="btn primary" href="https://github.com/deuxdoom/SteamSlice/releases/download/v1.0.0/SteamSlice_v100.zip">Windows용 다운로드</a>
+      <a class="btn ghost" href="https://github.com/deuxdoom/SteamSlice"><svg class="github-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg><span>소스 코드</span></a>
+    </div>
+
+    <p class="download-note">Windows 10/11 x64 · <a class="release-version" href="https://github.com/deuxdoom/SteamSlice/releases/tag/v1.0.0">v1.0.0</a><br>ZIP 전체를 풀고 실행하세요. bin 폴더가 함께 있어야 합니다. 설치 없이 사용할 수 있습니다.</p>
+
+    <figure class="app-screen fade d3">
+      <a href="assets/main-window.png" target="_blank" rel="noopener" aria-label="SteamSlice 실제 실행 화면을 원본 크기로 보기">
+        <img src="assets/main-window.png" width="1680" height="1140" fetchpriority="high" alt="SteamSlice 메인 창: 왼쪽의 도형 동영상 미리보기와 구간 설정, 오른쪽의 저장 위치·생성한 GIF 5개·스팀 등록 안내">
+      </a>
+      <figcaption><span><strong>SteamSlice 실제 실행 화면</strong><br>원본 미리보기부터 구간 선택, 생성 결과와 등록 안내까지 한 화면에서.</span><a href="assets/main-window.png" target="_blank" rel="noopener">화면 크게 보기 ↗</a></figcaption>
+    </figure>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2 class="reveal">필요한 작업을 한 화면에서</h2>
+      <p class="sub reveal">자르기, 용량 맞추기, 올리는 순서까지 따로 챙길 필요가 없습니다.</p>
+      <div class="grid">
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M5 3v18M10 3v18M14 3v18M19 3v18"/></svg></div>
+          <h3>정확한 다섯 조각</h3>
+          <p>16:9 원본은 188×537 크기의 조각 5개를 만듭니다. 다른 비율도 원본에 맞게 처리합니다. 재생 시간이 같아서 조각들이 서로 어긋나지 않습니다.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/></svg></div>
+          <h3>동영상에서 바로 추출</h3>
+          <p>MP4, MKV, MOV, WebM 등의 동영상에서 원하는 구간을 골라 GIF로 만든 뒤에 바로 자릅니다. 4K 영상도 사용할 수 있습니다.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></div>
+          <h3>용량 자동 맞춤</h3>
+          <p>조각 하나가 5MB를 넘으면 압축 강도를 자동으로 올려서 다시 만듭니다. 다섯 조각에 같은 화질이 적용됩니다.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div>
+          <h3>등록 안내</h3>
+          <p>프로그램 옆 output 폴더에서 다섯 조각을 확인하고, 업로드 페이지 열기와 명령어 복사 버튼을 이용해 직접 올립니다.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
+          <h3>빠른 처리</h3>
+          <p>7초 길이의 960×540 GIF를 약 17초에 처리합니다. 다섯 조각은 동시에 만들어집니다.</p>
+        </article>
+        <article class="card reveal">
+          <div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 12h6"/></svg></div>
+          <h3>단순한 화면</h3>
+          <p>밝은·어두운 테마를 고르고, 트레이로 최소화합니다. 다시 실행하면 기존 창이 복원되며 새 버전도 확인합니다.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <h2 class="reveal">네 단계로 끝납니다</h2>
+      <div class="steps">
+        <div class="step reveal"><h3>넣기</h3><p>GIF 또는 동영상 파일을 창에 끌어다 놓습니다.</p></div>
+        <div class="step reveal"><h3>구간 정하기</h3><p>위쪽 시작·아래쪽 끝 손잡이로 구간을 고르고, 가운데 막대를 끌어 구간 전체를 이동합니다.</p></div>
+        <div class="step reveal"><h3>만들기</h3><p>프로그램 옆 output 폴더에 저장합니다. 저장 위치를 바꿀 수도 있으며, 완료되면 폴더가 자동으로 열립니다.</p></div>
+        <div class="step reveal"><h3>올리기</h3><p>등록 안내와 명령어 복사 버튼을 이용해 1번부터 5번까지 직접 올립니다. 조각을 끌어다 놓을 수도 있습니다.</p></div>
+      </div>
+      <div class="specs reveal">
+        <div><strong>188 × 537</strong><span>조각 크기 (px)</span></div>
+        <div><strong>5</strong><span>조각 수</span></div>
+        <div><strong>≤ 5 MB</strong><span>조각당 용량</span></div>
+        <div><strong>30초</strong><span>동영상 구간의 최대 길이</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <div class="box reveal">
+        <h2>지금 프로필을 꾸며 보세요</h2>
+        <p class="sub">무료로 사용할 수 있는 Windows용 프로그램입니다.</p>
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/deuxdoom/SteamSlice/releases/download/v1.0.0/SteamSlice_v100.zip">다운로드</a>
+          <a class="btn ghost" href="https://github.com/deuxdoom/SteamSlice#빠른-시작">사용 설명서</a>
+        </div>
+        <p class="download-note">Windows 10/11 x64 · <a class="release-version" href="https://github.com/deuxdoom/SteamSlice/releases/tag/v1.0.0">v1.0.0</a><br>ZIP 전체를 풀고 실행하세요. bin 폴더가 함께 있어야 합니다. 설치 없이 사용할 수 있습니다.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>SteamSlice는 Valve 및 Steam과 관련이 없는 비공식 도구입니다. Steam은 Valve Corporation의 상표입니다.</p>
+    <p><a href="https://github.com/deuxdoom/SteamSlice" aria-label="GitHub 저장소" title="GitHub 저장소"><svg class="github-icon" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"/></svg></a></p>
+  </div>
+</footer>
+
+<script>
+  // 스크롤 연동 애니메이션을 지원하지 않는 브라우저에서는 화면에 들어올 때 나타나게 한다.
+  if (!CSS.supports("animation-timeline: view()")) {
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+    }, { threshold: 0.15 });
+    document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+  }
+  // 카드 위에서 마우스 위치를 따라 빛이 움직인다.
+  document.querySelectorAll(".card").forEach((card) => {
+    card.addEventListener("pointermove", (e) => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty("--mx", (e.clientX - r.left) + "px");
+      card.style.setProperty("--my", (e.clientY - r.top) + "px");
+    });
+  });
+</script>
+</body>
+</html>
