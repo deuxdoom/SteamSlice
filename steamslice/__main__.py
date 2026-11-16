@@ -20,7 +20,7 @@ def cli(argv):
         return 1
     for i, (f, s) in enumerate(zip(r.files, r.sizes), 1):
         print(f"{i}번 {s / 1e6:.2f}MB  {f}")
-    print(f"완료: {r.frames}프레임, {r.total_ms}ms, 압축 {r.lossy}, {r.seconds:.1f}초")
+    print(f"완료: {r.frames}프레임, {r.total_ms}ms, {core.compression_summary(r)}, {r.seconds:.1f}초")
     return 0
 
 

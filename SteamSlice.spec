@@ -7,7 +7,7 @@ a = Analysis(
     # ffmpeg.exe는 동영상 기능에 필요하다. 용량이 커서 저장소에는 넣지 않으므로, 빌드 전에 tools 폴더에 넣어 둔다.
     binaries=[('tools/gifsicle.exe', '.'), ('tools/ffmpeg.exe', '.')],
     datas=[('assets/steamslice.png', 'assets'), ('assets/icons/*.png', 'assets/icons'),
-           ('THIRD_PARTY_NOTICES.md', '.'), ('assets/icons/*LICENSE*', 'licenses')],
+           ('LICENSE', '.'), ('THIRD_PARTY_NOTICES.md', '.'), ('assets/icons/*LICENSE*', 'licenses')],
     hiddenimports=[],
     excludes=['PIL', 'tkinter', 'numpy', 'PyQt6.QtPdf', 'PyQt6.QtSvg', 'PyQt6.QtQml', 'PyQt6.QtQuick',
               'PyQt6.QtOpenGL', 'PyQt6.QtSql', 'PyQt6.QtTest', 'PyQt6.QtMultimedia'],

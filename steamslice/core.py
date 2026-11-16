@@ -18,7 +18,7 @@ SLICE_W = 188              # 조각 폭(px)
 TOTAL_W = N * SLICE_W + (N - 1) * GAP   # 956
 SIZE_LIMIT = 5_000_000     # 조각당 용량 한도(바이트)
 LOSSY_START, LOSSY_STEP, LOSSY_MAX = 80, 20, 200
-HOPELESS_RATIO = 2.0       # 용량이 한도의 이 배수를 넘으면 압축을 더 올려도 맞출 수 없다고 본다
+COLOR_STEPS = (128, 64, 32)
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -55,6 +55,9 @@ class Result:
     upscaled: bool
     out_dir: str
     stem: str              # 결과 파일 이름과 업로드 제목의 앞부분
+    colors: int | None = None
+    frame_step: int = 1
+    source_frames: int = 0
 
 
 def plan(width, height):
@@ -142,8 +145,7 @@ def _wait(jobs, cancel):
             j.close()
 
 
-def probe(path, cancel=None):
-    """(폭, 높이, 프레임 수, 총 재생 시간 ms)을 반환한다."""
+def _info_text(path, cancel=None):
     if not os.path.isfile(path):
         raise SliceError("파일을 찾을 수 없습니다: " + path)
     job = _Job(["--info"], path)
@@ -159,13 +161,71 @@ def probe(path, cancel=None):
                     raise SliceError("GIF 검사 시간이 너무 오래 걸려서 중단했습니다.") from None
     finally:
         job.close()
-    text = out.decode("utf-8", "replace")
+    if job.proc.returncode != 0:
+        raise SliceError("GIF 파일이 아니거나 손상된 파일입니다. 다른 파일을 선택해 주세요.")
+    return out.decode("utf-8", "replace")
+
+
+def probe(path, cancel=None):
+    """(폭, 높이, 프레임 수, 총 재생 시간 ms)을 반환한다."""
+    text = _info_text(path, cancel)
     m_n = re.search(r"(\d+) images?", text)
     m_s = re.search(r"logical screen (\d+)x(\d+)", text)
-    if job.proc.returncode != 0 or not m_n or not m_s:
+    if not m_n or not m_s:
         raise SliceError("GIF 파일이 아니거나 손상된 파일입니다. 다른 파일을 선택해 주세요.")
     total = sum(round(float(d) * 1000) for d in re.findall(r"delay ([\d.]+)s", text))
     return int(m_s.group(1)), int(m_s.group(2)), int(m_n.group(1)), total
+
+
+def frame_delays(path, cancel=None) -> list[int]:
+    """Gifsicle이 읽은 프레임별 간격을 1/100초 단위로 반환한다. 간격이 없으면 0이다."""
+    images = re.split(r"\+ image #\d+\b", _info_text(path, cancel))[1:]
+    return [round(float(m.group(1)) * 100) if (m := re.search(r"delay ([\d.]+)s", image)) else 0
+            for image in images]
+
+
+def thin_frames(expanded, delays: list[int], step: int, dst, cancel):
+    """합성된 전체 프레임에서 일부를 고르고 생략 구간의 시간을 합친다."""
+    selections: list[tuple[int, int]] = []
+    start = 0
+    while start < len(delays):
+        end, delay = start, 0
+        while end < min(start + step, len(delays)):
+            if delay + delays[end] > 65535:
+                break   # GIF 간격 필드의 16비트 한도 안에서만 합친다.
+            delay += delays[end]
+            end += 1
+        selections.append((start, delay))
+        start = end
+    chunks = []
+    # Windows 명령줄 길이 제한을 피한다. 긴 GIF도 동일한 프레임 선택 규칙을 사용한다.
+    for offset in range(0, len(selections), 256):
+        check_cancel(cancel)
+        args = []
+        for index, delay in selections[offset:offset + 256]:
+            args.extend([f"--delay={delay}", f"#{index}"])
+        chunk = f"{dst}.{offset}.gif"
+        _wait([_Job(args, expanded, chunk)], cancel)
+        chunks.append(chunk)
+    if len(chunks) == 1:
+        os.replace(chunks[0], dst)
+    else:
+        joined = dst + ".multi"
+        with open(joined, "wb") as out:
+            for chunk in chunks:
+                check_cancel(cancel)
+                with open(chunk, "rb") as source:
+                    shutil.copyfileobj(source, out)
+        _wait([_Job(["--multifile"], joined, dst)], cancel)
+
+
+def compression_summary(result: Result) -> str:
+    details = [f"압축 {result.lossy}"]
+    if result.colors is not None:
+        details.append(f"{result.colors}색")
+    if result.frame_step > 1:
+        details.append(f"프레임 {result.source_frames} → {result.frames} (재생 시간 유지)")
+    return " · ".join(details)
 
 
 def patch_trailer(path):
@@ -253,6 +313,7 @@ def run(src, out_dir=None, on_progress=None, cancel=None, lossy_start=LOSSY_STAR
 
     say("검사")
     is_video = video.is_video(src)
+    info = None
     if is_video:
         info = video.probe(src, cancel)
         clip = clip or (0.0, min(info.duration, video.MAX_CLIP_SECONDS), video.DEFAULT_FPS)
@@ -271,7 +332,7 @@ def run(src, out_dir=None, on_progress=None, cancel=None, lossy_start=LOSSY_STAR
         full = os.path.join(tmp, "full.gif")
         if clip:
             say("동영상에서 GIF 추출")
-            video.extract_gif(src, clip[0], clip[1], clip[2], pl.total_w, pl.total_h, full, cancel)
+            video.extract_gif(src, clip[0], clip[1], clip[2], pl.total_w, pl.total_h, full, cancel, info=info)
             _, _, frames, total_ms = probe(full, cancel)
         else:
             say("축소")
@@ -280,14 +341,27 @@ def run(src, out_dir=None, on_progress=None, cancel=None, lossy_start=LOSSY_STAR
 
         parts = [os.path.join(tmp, f"{i + 1}.gif") for i in range(N)]
         lossy = max(0, min(LOSSY_MAX, lossy_start))
+        source_frames = frames
+        colors = None
+        frame_step = 1
+        expanded = os.path.join(tmp, "expanded.gif")
+        thinned = os.path.join(tmp, "thinned.gif")
+        delays: list[int] = []
+        input_gif = full
         attempt = 1
         while True:
-            say(f"자르기 ({attempt}회차, 압축 {lossy})")
+            detail = f"압축 {lossy}" + (f", {colors}색" if colors else "")
+            if frame_step > 1:
+                detail += f", 프레임 {frames}/{source_frames}"
+            say(f"자르기 ({attempt}회차, {detail})")
             jobs = []
             try:
                 for x, part in zip(pl.lefts, parts):
                     check_cancel(cancel)
-                    jobs.append(_Job(["--crop", f"{x},0+{SLICE_W}x{pl.total_h}", "-O3", f"--lossy={lossy}"], full, part))
+                    args = ["--crop", f"{x},0+{SLICE_W}x{pl.total_h}", "-O3", f"--lossy={lossy}"]
+                    if colors is not None:
+                        args.extend(["--colors", str(colors)])
+                    jobs.append(_Job(args, input_gif, part))
                 _wait(jobs, cancel)
             finally:
                 for job in jobs:
@@ -295,13 +369,29 @@ def run(src, out_dir=None, on_progress=None, cancel=None, lossy_start=LOSSY_STAR
             sizes = [os.path.getsize(p) for p in parts]
             if max(sizes) <= SIZE_LIMIT:
                 break
-            # 압축을 최대로 올려도 용량은 절반 아래로 줄지 않으므로, 한도의 두 배를 넘으면 바로 중단한다.
-            if lossy >= LOSSY_MAX or max(sizes) > SIZE_LIMIT * HOPELESS_RATIO:
+            if lossy < LOSSY_MAX:
+                lossy = min(LOSSY_MAX, lossy + LOSSY_STEP)
+            elif colors != COLOR_STEPS[-1]:
+                colors = COLOR_STEPS[0] if colors is None else COLOR_STEPS[COLOR_STEPS.index(colors) + 1]
+            elif frame_step < source_frames:
+                if not delays:
+                    say("프레임 감축 준비")
+                    _wait([_Job(["--unoptimize"], full, expanded)], cancel)
+                    delays = frame_delays(expanded, cancel)
+                    if len(delays) != source_frames or sum(delays) * 10 != total_ms:
+                        raise SliceError("프레임 간격을 읽을 수 없습니다. 더 짧은 파일을 사용해 주세요.")
+                frame_step = min(source_frames, frame_step * 2)
+                say(f"프레임 감축 (최대 {frame_step}개 간격 합치기, 재생 시간 유지)")
+                thin_frames(expanded, delays, frame_step, thinned, cancel)
+                _, _, frames, ms = probe(thinned, cancel)
+                if ms != total_ms:
+                    raise SliceError("프레임 감축 후 재생 시간 검사에 실패했습니다.")
+                input_gif = thinned
+            else:
                 over = ", ".join(f"{i + 1}번 {s / 1e6:.1f}MB" for i, s in enumerate(sizes) if s > SIZE_LIMIT)
                 advice = ("구간을 더 짧게 지정하거나 FPS를 낮춰 주세요." if clip
                           else "더 짧거나 움직임이 적은 GIF를 사용해 주세요.")
                 raise SliceError(f"조각의 용량이 5MB를 넘습니다 (압축 {lossy} 기준: {over}). " + advice)
-            lossy = min(LOSSY_MAX, lossy + LOSSY_STEP)
             attempt += 1
 
         say("마무리")
@@ -316,6 +406,7 @@ def run(src, out_dir=None, on_progress=None, cancel=None, lossy_start=LOSSY_STAR
             raise Cancelled()
 
         files = save_parts(parts, out_dir, stem, cancel)
-        return Result(files, sizes, lossy, time.time() - started, frames, total_ms, pl.upscaled, out_dir, stem)
+        return Result(files, sizes, lossy, time.time() - started, frames, total_ms, pl.upscaled, out_dir, stem,
+                      colors, frame_step, source_frames)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

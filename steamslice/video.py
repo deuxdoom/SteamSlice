@@ -27,6 +27,15 @@ class VideoInfo:
     width: int
     height: int
     fps: float
+    color_space: str = ""
+    color_primaries: str = ""
+    color_transfer: str = ""
+    color_range: str = ""
+
+    @property
+    def is_hdr(self) -> bool:
+        # 비트 깊이나 BT.2020 색역만으로 HDR이라고 판단하면 SDR 영상도 바뀐다.
+        return self.color_transfer in ("smpte2084", "arib-std-b67")
 
 
 def is_video(path):
@@ -75,7 +84,7 @@ def _run(args, cancel=None, timeout=600.0):
 
 
 def probe(path, cancel=None):
-    """동영상의 길이, 크기, 프레임 레이트를 읽는다."""
+    """동영상의 길이, 크기, 프레임 레이트와 색상 정보를 읽는다."""
     if not os.path.isfile(path):
         raise VideoError("파일을 찾을 수 없습니다: " + path)
     _, _, err = _run(["-i", path], cancel=cancel, timeout=30)
@@ -84,21 +93,46 @@ def probe(path, cancel=None):
     if not m_d or not m_v:
         raise VideoError("동영상을 읽을 수 없습니다. 다른 파일을 선택해 주세요.")
     duration = int(m_d.group(1)) * 3600 + int(m_d.group(2)) * 60 + float(m_d.group(3))
-    m_f = re.search(r"([\d.]+) fps", err)
+    # 크기 뒤에 나오는 fps까지 포함하되, 다른 스트림의 태그는 읽지 않는다.
+    stream = err[m_v.start():].splitlines()[0]
+    m_f = re.search(r"([\d.]+) fps", stream)
+    colors = re.search(r"\b([a-z0-9-]+)/([a-z0-9-]+)/([a-z0-9-]+)\b", stream)
+    space, primaries, transfer = colors.groups() if colors else ("", "", "")
+    hdr = re.search(r"\b(smpte2084|arib-std-b67)\b", stream)
+    if hdr:
+        transfer = hdr.group(1)
+    color_range = re.search(r"\((tv|pc)\b", stream)
     width, height = int(m_v.group(1)), int(m_v.group(2))
     if re.search(r"rotation of -?(90|270)", err):   # 세로로 촬영한 영상은 표시 크기가 반대이다
         width, height = height, width
     if duration <= 0:
         raise VideoError("동영상의 길이를 알 수 없습니다. 다른 파일을 선택해 주세요.")
-    return VideoInfo(duration, width, height, float(m_f.group(1)) if m_f else 0.0)
+    return VideoInfo(duration, width, height, float(m_f.group(1)) if m_f else 0.0,
+                     space, primaries, transfer, color_range.group(1) if color_range else "")
 
 
-def grab_frame(path, ts, max_w=960, cancel=None):
+def _frame_filter(info: VideoInfo, width: int, height: int, method: str) -> str:
+    """크기를 맞추고 HDR만 선형 RGB에서 톤매핑해 SDR sRGB로 변환한다."""
+    if not info.is_hdr:
+        return f"scale={width}:{height}:flags={method}"
+    # HDR 입력 태그 일부가 없을 때만 일반적인 BT.2020·limited를 보충한다.
+    space = info.color_space if info.color_space not in ("", "unknown", "unspecified") else "bt2020nc"
+    primaries = info.color_primaries if info.color_primaries not in ("", "unknown", "unspecified") else "bt2020"
+    # RGB 변환과 크기 변경을 함께 수행해 4:2:0 입력도 홀수 높이로 출력할 수 있다.
+    return (f"zscale=w={width}:h={height}:filter={method}:matrixin={space}"
+            f":primariesin={primaries}:transferin={info.color_transfer}"
+            f":rangein={info.color_range or 'tv'}:transfer=linear:npl=100,"
+            "format=gbrpf32le,zscale=primaries=bt709,tonemap=mobius:desat=0,"
+            "zscale=transfer=iec61966-2-1:matrix=gbr:range=full,format=rgb24")
+
+
+def grab_frame(path, ts, max_w=960, cancel=None, info: VideoInfo | None = None):
     """지정한 시각의 프레임을 JPEG 바이트로 반환한다. 끝부분에서 프레임이 없으면 조금 앞에서 다시 시도한다."""
     err = ""
+    filters = _frame_filter(info if info is not None else probe(path, cancel), max_w, -2, "bilinear")
     for t in (max(0.0, ts), max(0.0, ts - 0.5), max(0.0, ts - 2.0)):
         _, out, err = _run(["-loglevel", "error", "-ss", f"{t:.3f}", "-i", path, "-an", "-sn", "-dn",
-                            "-frames:v", "1", "-vf", f"scale={max_w}:-2:flags=bilinear",
+                            "-map", "0:v:0", "-frames:v", "1", "-vf", filters,
                             "-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "3", "-"],
                            cancel=cancel, timeout=30)
         if out:
@@ -116,7 +150,7 @@ def check_clip(info, start, end):
         raise VideoError(f"구간이 너무 깁니다. {MAX_CLIP_SECONDS:.0f}초 이하로 지정해 주세요.")
 
 
-def extract_gif(path, start, end, fps, width, height, out_gif, cancel=None):
+def extract_gif(path, start, end, fps, width, height, out_gif, cancel=None, info: VideoInfo | None = None):
     """[start, end) 구간을 width×height, fps의 GIF로 추출한다.
 
     구간 전체에서 256색 팔레트를 만든 뒤에 적용하므로 색이 깨지지 않는다.
@@ -125,17 +159,18 @@ def extract_gif(path, start, end, fps, width, height, out_gif, cancel=None):
     if fps not in FPS_CHOICES:
         raise VideoError("FPS는 25, 20, 10 중에서 선택해 주세요.")
     src = ["-ss", f"{start:.3f}", "-t", f"{length:.3f}", "-i", path]
-    frames = f"fps={fps},scale={width}:{height}:flags=lanczos,setsar=1"
+    filters = _frame_filter(info if info is not None else probe(path, cancel), width, height, "lanczos")
+    frames = f"fps={fps},{filters},setsar=1"
     use = "paletteuse=dither=floyd_steinberg:diff_mode=rectangle"
     tail = ["-an", "-sn", "-dn", "-loop", "0", "-f", "gif", "-y", out_gif]
     if length * fps * width * height <= ONE_PASS_MAX_PIXELS:
-        graph = f"{frames},split[a][b];[a]palettegen=stats_mode=full[p];[b][p]{use}"
+        graph = f"[0:v:0]{frames},split[a][b];[a]palettegen=stats_mode=full[p];[b][p]{use}"
         steps = [["-loglevel", "error", *src, "-lavfi", graph, *tail]]
     else:
         palette = out_gif + ".palette.png"
         steps = [["-loglevel", "error", *src, "-an", "-sn", "-dn",
-                  "-vf", f"{frames},palettegen=stats_mode=full", "-frames:v", "1", "-update", "1", "-y", palette],
-                 ["-loglevel", "error", *src, "-i", palette, "-lavfi", f"{frames}[x];[x][1:v]{use}", *tail]]
+                  "-map", "0:v:0", "-vf", f"{frames},palettegen=stats_mode=full", "-frames:v", "1", "-update", "1", "-y", palette],
+                 ["-loglevel", "error", *src, "-i", palette, "-lavfi", f"[0:v:0]{frames}[x];[x][1:v]{use}", *tail]]
     for args in steps:
         code, _, err = _run(args, cancel=cancel)
         if code != 0:

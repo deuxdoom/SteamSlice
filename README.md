@@ -12,10 +12,10 @@
 <p align="center"><a href="assets/main-window.png"><img src="assets/main-window.png" width="880" alt="도형으로 만든 동영상과 GIF 생성 결과를 표시하는 SteamSlice 메인 화면"></a></p>
 
 <p align="center">
-  <a href="https://github.com/deuxdoom/SteamSlice/releases/download/v1.0.0/SteamSlice_v100.zip"><img src="https://img.shields.io/badge/Windows%20ZIP-다운로드-0078a6?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="Windows ZIP 바로 다운로드"></a>
+  <a href="https://github.com/deuxdoom/SteamSlice/releases/download/v1.0.1/SteamSlice_v101.zip"><img src="https://img.shields.io/badge/Windows%20ZIP-다운로드-0078a6?style=for-the-badge&amp;logo=github&amp;logoColor=white" alt="Windows ZIP 바로 다운로드"></a>
   <a href="https://deuxdoom.github.io/SteamSlice/"><img src="https://img.shields.io/badge/소개%20페이지-263447?style=for-the-badge" alt="소개 페이지"></a>
 </p>
-<p align="center">현재 공개 버전: <a href="https://github.com/deuxdoom/SteamSlice/releases/tag/v1.0.0"><b>v1.0.0</b></a> · Windows 10/11 x64<br>ZIP 전체를 풀고 SteamSlice.exe를 실행하세요. bin 폴더도 함께 있어야 합니다.</p>
+<p align="center">현재 공개 버전: <a href="https://github.com/deuxdoom/SteamSlice/releases/tag/v1.0.1"><b>v1.0.1</b></a> · Windows 10/11 x64<br>ZIP 전체를 풀고 SteamSlice.exe를 실행하세요. bin 폴더도 함께 있어야 합니다.</p>
 
 <p align="center"><a href="#빠른-시작">빠른 시작</a> · <a href="#주요-기능">주요 기능</a> · <a href="#설정과-트레이">설정과 트레이</a> · <a href="#업데이트">업데이트</a> · <a href="CHANGELOG.md">변경 기록</a> · <a href="#license">라이선스</a></p>
 
@@ -33,10 +33,10 @@
 
 ## 🚀 빠른 시작
 
-1. [Windows ZIP](https://github.com/deuxdoom/SteamSlice/releases/download/v1.0.0/SteamSlice_v100.zip)을 받아 **전체 압축을 풉니다**.
-2. `SteamSlice.exe`를 실행하고 GIF 또는 동영상을 끌어다 놓습니다.
-3. 동영상은 위쪽 시작·아래쪽 끝 손잡이로 구간을 고릅니다. 가운데 막대를 끌면 구간 길이를 유지하며 이동합니다.
-4. 저장 위치를 확인하고 **5조각 만들기**를 누릅니다. 기본 위치는 프로그램 옆 `output/<이름>_steam`이며 다른 위치도 선택할 수 있습니다.
+1. [Windows ZIP](https://github.com/deuxdoom/SteamSlice/releases/download/v1.0.1/SteamSlice_v101.zip)을 받아 **전체 압축을 풉니다**.
+2. `SteamSlice.exe`를 실행하고 **파일 추가**나 끌어다 놓기로 GIF 또는 동영상을 넣습니다. 여러 파일도 함께 넣을 수 있습니다.
+3. 목록에서 동영상을 선택하고 위쪽 시작·아래쪽 끝 손잡이로 구간을 고릅니다. 가운데 막대를 끌면 구간 길이를 유지하며 이동합니다.
+4. 저장 위치를 확인하고 **5조각 만들기** 또는 **연속 만들기**를 누릅니다. 기본 위치는 프로그램 옆 `output/<이름>_steam`이며 다른 위치도 선택할 수 있습니다.
 5. 완성된 폴더에서 조각을 확인하고 등록 안내에 따라 **1 → 5** 순서로 올립니다. 1번이 가장 왼쪽 조각입니다.
 
 <a id="주요-기능"></a>
@@ -45,22 +45,25 @@
 
 | 기능 | 동작 |
 |---|---|
-| GIF·동영상 | GIF, MP4, MKV, MOV, WebM, AVI, M4V, WMV, TS · 4K 입력 |
+| GIF·동영상 | GIF, MP4, MKV, MOV, WebM, AVI, M4V, WMV, TS · 4K 입력 · PQ/HLG HDR → SDR 보정 |
 | 구간 선택 | 동영상 0.2~30초 · 기본 6초 · FPS 25/20/10 |
 | 5분할 | 폭 188px, 간격 4px, 원본 비율에 따른 높이 · 16:9 기준 188×537 |
-| 용량 맞춤 | 조각당 5,000,000바이트 이하 · 압축 시작값 0~200, 기본 80 |
+| 용량 맞춤 | 조각당 5,000,000바이트 이하 · 압축 → 128/64/32색 → 재생 시간을 보존한 프레임 감축 |
+| 여러 파일 | 파일 추가·다중 끌어다 놓기 · 영상별 구간·FPS · 순차 처리 · 목록에서 결과 확인 |
 | 결과 확인 | 완료 후 폴더 열기 · 경로 복사 · 조각 파일 표시·드래그 |
 | 등록 안내 | 업로드 페이지와 Console 명령어 복사 · 직접 등록 |
 | 화면 | 밝은/어두운 테마 · 별도 설정·정보 창 · 상태가 바뀌어도 고정된 작업 영역 |
 | 작업 제어 | 백그라운드 처리 · 취소 · 단일 실행 · 트레이 복원·종료 |
 
-GIF의 재생 시간을 유지하며, 변화가 없는 장면은 최적화 중 합쳐질 수 있습니다. 압축 200에서도 용량을 맞추지 못하면 짧은 구간이나 낮은 FPS를 사용하도록 안내합니다. 고급 압축 설정은 항상 표시됩니다.
+GIF의 총 재생 시간을 유지합니다. 변화가 없는 장면은 최적화 중 합쳐질 수 있으며, 용량을 맞추기 위한 프레임 감축은 움직임을 덜 부드럽게 만들 수 있습니다. 압축 시작값은 0~200(기본 80)이며 고급 설정은 항상 표시됩니다. 모든 단계로도 5MB를 맞추지 못하면 짧은 구간이나 낮은 FPS를 사용하도록 안내합니다.
+
+**파일 추가**나 끌어다 놓기로 여러 파일을 넣고 목록에서 영상별 구간과 FPS를 정한 뒤 **연속 만들기**를 누릅니다. 목록 순서대로 처리하며 한 파일이 실패해도 다음 파일로 진행합니다. 취소하면 완료한 파일의 결과는 보존합니다. 완료 후 목록에서 파일을 선택해 조각·저장 폴더·실패 원인을 확인할 수 있습니다. 같은 이름과 구간 때문에 저장 폴더가 겹치면 원본 이름을 다르게 지정해야 합니다.
 
 <a id="설정과-트레이"></a>
 
 ## ⚙️ 설정과 트레이
 
-상단 **설정**에서 밝은/어두운 테마, 최소화 시 트레이 사용, 시작 시 업데이트 확인을 바꿉니다. 설정과 사용자 지정 저장 위치는 프로그램 옆 `settings.json`에 저장됩니다. 저장할 수 없으면 안내를 표시합니다.
+상단 **설정**에서 밝은/어두운 테마, 최소화 시 트레이 사용, 시작 시 업데이트 확인을 바꿉니다. 설정과 최근 입력 폴더·사용자 지정 저장 위치는 프로그램 옆 `settings.json`에 저장됩니다. 저장할 수 없으면 안내를 표시합니다.
 
 - 최소화 버튼 또는 상단 **트레이**로 창을 숨깁니다. 트레이를 쓸 수 없는 환경에서는 창을 숨기지 않습니다.
 - 트레이 아이콘을 더블 클릭하거나 **메인 창 복원**을 선택하면 돌아옵니다.
@@ -86,7 +89,7 @@ GIF의 재생 시간을 유지하며, 변화가 없는 장면은 최적화 중 �
 릴리스에 ZIP과 `.zip.sha256` 파일을 함께 제공합니다. 릴리스 본문의 확인값과 아래 명령 결과를 대조할 수도 있습니다.
 
 ```powershell
-Get-FileHash .\SteamSlice_v100.zip -Algorithm SHA256
+Get-FileHash .\SteamSlice_v101.zip -Algorithm SHA256
 ```
 
 ## 🎮 스팀에 등록하는 방법
@@ -134,7 +137,7 @@ python tools/make_ui_icons.py   # 앱 아이콘 SVG·색을 수정한 경우
 python tools/build.py
 ```
 
-`dist/SteamSlice/`에 `SteamSlice.exe`와 `bin/`, `dist/`에 `SteamSlice_v100.zip`과 `.zip.sha256`이 생성됩니다. 빌드 스크립트는 로컬 릴리스 문서의 SHA-256도 갱신합니다. 배포 ZIP에는 사용자 설정과 결과 파일을 넣지 않습니다.
+`dist/SteamSlice/`에 `SteamSlice.exe`와 `bin/`, `dist/`에 `SteamSlice_v101.zip`과 `.zip.sha256`이 생성됩니다. 빌드 스크립트는 로컬 릴리스 문서의 SHA-256도 갱신합니다. 배포 ZIP에는 사용자 설정과 결과 파일을 넣지 않습니다.
 
 ```powershell
 python tests/test_update.py

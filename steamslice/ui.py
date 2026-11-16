@@ -2,6 +2,7 @@
 import os
 import sys
 import threading
+from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QEvent, QMimeData, QPointF, QRectF, QSize, Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QDesktopServices, QDrag, QFont, QIcon, QImage, QMovie, QPainter, QPalette, QPixmap
@@ -151,20 +152,25 @@ class UpdateTask(QThread):
 class MediaLoader(QThread):
     done = pyqtSignal(str, object)
     failed = pyqtSignal(str)
+    item_failed = pyqtSignal(str, str)
 
-    def __init__(self, path: str):
+    def __init__(self, path: str | list[str]):
         super().__init__()
-        self.path = path
+        self.paths = [path] if isinstance(path, str) else list(path)
+        self.path = self.paths[0]
         self.cancel = threading.Event()
 
     def run(self):
-        try:
-            info = video.probe(self.path, self.cancel) if video.is_video(self.path) else core.probe(self.path, self.cancel)
-            self.done.emit(self.path, info)
-        except core.Cancelled:
-            pass
-        except Exception as exc:
-            self.failed.emit(str(exc))
+        for path in self.paths:
+            try:
+                core.check_cancel(self.cancel)
+                info = video.probe(path, self.cancel) if video.is_video(path) else core.probe(path, self.cancel)
+                self.done.emit(path, info)
+            except core.Cancelled:
+                return
+            except Exception as exc:
+                self.item_failed.emit(path, str(exc))
+                self.failed.emit(str(exc))
 
 
 def logo_pixmap(size):
@@ -207,19 +213,59 @@ class PathLabel(QLabel):
         self.elide()
 
 
+@dataclass
+class QueueItem:
+    path: str
+    media: video.VideoInfo | tuple[int, int, int, int] | None = None
+    clip: tuple[float, float, int] | None = None
+    result: core.Result | None = None
+    error: str = ""
+    state: str = "대기"
+
+
+@dataclass
+class BatchReport:
+    results: list[tuple[int, core.Result]] = field(default_factory=list)
+    errors: list[tuple[int, str]] = field(default_factory=list)
+
+
 class Worker(QThread):
     stage = pyqtSignal(str)
     done = pyqtSignal(object)
     failed = pyqtSignal(str)
     cancelled = pyqtSignal()
+    active = pyqtSignal(int)
+    item_done = pyqtSignal(int, object)
+    item_failed = pyqtSignal(int, str)
 
-    def __init__(self, src, out_dir, lossy, clip):
+    def __init__(self, src, out_dir, lossy, clip, jobs: list[tuple[str, str, tuple[float, float, int] | None]] | None = None):
         super().__init__()
         self.src, self.out_dir, self.lossy, self.clip = src, out_dir, lossy, clip
         self.cancel = threading.Event()
+        self.jobs = jobs
 
     def run(self):
         try:
+            if self.jobs is not None:
+                report = BatchReport()
+                for index, (src, out_dir, clip) in enumerate(self.jobs):
+                    core.check_cancel(self.cancel)
+                    self.active.emit(index)
+                    prefix = f"{index + 1}/{len(self.jobs)} {os.path.basename(src)} · "
+                    try:
+                        result = core.run(src, out_dir, on_progress=lambda stage: self.stage.emit(prefix + stage),
+                                          cancel=self.cancel, lossy_start=self.lossy, clip=clip)
+                    except core.Cancelled:
+                        raise
+                    except Exception as exc:
+                        message = str(exc)
+                        report.errors.append((index, message))
+                        self.item_failed.emit(index, message)
+                    else:
+                        report.results.append((index, result))
+                        self.item_done.emit(index, result)
+                self.done.emit(report)
+                return
             self.done.emit(core.run(self.src, self.out_dir, on_progress=self.stage.emit,
                                     cancel=self.cancel, lossy_start=self.lossy, clip=self.clip))
         except core.Cancelled:
@@ -459,6 +505,8 @@ class DragLabel(QLabel):
         self.dragged = False
         self.setObjectName("chip")
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(48)
         self.setToolTip("누르면 탐색기에서 파일을 보여줍니다. 끌어서 브라우저의 파일 선택 칸에 놓을 수도 있습니다.")
@@ -484,6 +532,8 @@ class Window(QWidget):
     def __init__(self):
         super().__init__()
         self.src = ""
+        self.items: list[QueueItem] = []
+        self.batch_items: list[QueueItem] = []
         self.worker: Worker | None = None
         self.loader: MediaLoader | None = None
         self.update_task: UpdateTask | None = None
@@ -797,7 +847,7 @@ class Window(QWidget):
         source_head = QHBoxLayout()
         source_title = QLabel("01  원본 · 구간 설정")
         source_title.setObjectName("section")
-        self.pick_btn = QPushButton("파일 선택")
+        self.pick_btn = QPushButton("파일 추가")
         self.decorate(self.pick_btn, "file")
         self.pick_btn.clicked.connect(self.pick)
         source_head.addWidget(source_title, 1)
@@ -812,6 +862,20 @@ class Window(QWidget):
         self.info.setObjectName("hint")
         self.info.setText("파일을 선택하면 크기와 재생 정보를 표시합니다.")
         source.addWidget(self.info)
+
+        queue_row = QHBoxLayout()
+        self.queue = QComboBox()
+        self.queue.setMinimumContentsLength(10)
+        self.queue.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.queue.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.queue.setMinimumWidth(0)
+        self.queue.setToolTip("파일을 선택해 영상별 구간과 완료 결과를 확인합니다. 목록 순서대로 처리합니다.")
+        self.queue.currentIndexChanged.connect(self.select_item)
+        self.remove_btn = QPushButton("제거")
+        self.remove_btn.clicked.connect(self.remove_item)
+        queue_row.addWidget(self.queue, 1)
+        queue_row.addWidget(self.remove_btn)
+        source.addLayout(queue_row)
 
         self.clip_stack = QStackedWidget()
         self.clip_stack.setFixedHeight(154)
@@ -889,7 +953,7 @@ class Window(QWidget):
         self.bar = RangeBar()
         self.bar.changed.connect(self.on_bar)
         lay.addWidget(self.bar)
-        hint = QLabel("선택 막대를 끌어 구간 이동 · 위쪽은 시작, 아래쪽은 끝")
+        hint = QLabel("막대를 끌어 구간 이동 · 위: 시작 / 아래: 끝")
         hint.setObjectName("hint")
         lay.addWidget(hint)
 
@@ -900,7 +964,9 @@ class Window(QWidget):
             spin.setDecimals(2)
             spin.setSingleStep(0.1)
             spin.setSuffix(" 초")
-            spin.setFixedWidth(112)
+            spin.setMinimumWidth(92)
+            spin.setMaximumWidth(112)
+            spin.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
             spin.valueChanged.connect(self.on_spin)
             row.addWidget(QLabel(name))
             row.addWidget(spin)
@@ -952,6 +1018,15 @@ class Window(QWidget):
         length = self.bar.end - self.bar.start
         frames = round(length * int(self.fps.currentData()))
         self.clip_label.setText(f"길이 {length:.2f}초 · 약 {frames}프레임 (최대 {video.MAX_CLIP_SECONDS:.0f}초)")
+        item = self.selected_item()
+        if item is not None and self.vinfo is not None:
+            clip = self.clip()
+            if item.clip != clip:
+                item.clip = clip
+                item.result, item.error, item.state = None, "", "대기"
+                self.result = None
+                self.render_queue()
+                self.refresh()
         self.update_dest()   # 동영상은 구간이 결과 폴더의 이름에 들어간다
 
     def on_bar(self, moved):
@@ -994,6 +1069,8 @@ class Window(QWidget):
         top = QHBoxLayout()
         self.done_label = QLabel("생성한 조각이 여기에 표시됩니다.")
         self.done_label.setObjectName("done")
+        self.done_label.setMinimumWidth(0)
+        self.done_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.b_folder = QPushButton("폴더 열기")
         self.decorate(self.b_folder, "folder")
         self.b_folder.clicked.connect(self.open_folder)
@@ -1067,10 +1144,13 @@ class Window(QWidget):
 
     def refresh(self):
         busy = self.busy()
-        self.go.setEnabled(bool(self.src) and not busy)
-        self.go.setText("만드는 중..." if busy else "5조각 만들기")
+        count = sum(item.media is not None for item in self.items)
+        self.go.setEnabled(bool(count or self.src) and not busy)
+        self.go.setText("만드는 중..." if busy else f"{count}개 연속 만들기" if count > 1 else "5조각 만들기")
         self.stop.setEnabled(self.worker is not None or self.loader is not None)
         self.pick_btn.setEnabled(not busy)
+        self.queue.setEnabled(bool(self.items) and not busy)
+        self.remove_btn.setEnabled(bool(self.items) and not busy)
         self.preview.setEnabled(not busy)
         self.lossy.setEnabled(not busy)
         self.clip_stack.setCurrentIndex(1 if self.vinfo is not None else 0)
@@ -1106,10 +1186,13 @@ class Window(QWidget):
         if self.busy():
             return
         exts = " ".join("*" + e for e in (".gif", *video.VIDEO_EXTS))
-        path, _ = QFileDialog.getOpenFileName(self, "GIF 또는 동영상 선택", os.path.dirname(self.src),
-                                              f"GIF 또는 동영상 ({exts})")
-        if path:
-            self.load(path)
+        folder = str(self.preferences.get("last_open_dir", "")) or os.path.dirname(self.src)
+        if not os.path.isdir(folder):
+            folder = core.app_dir()
+        paths, _ = QFileDialog.getOpenFileNames(self, "GIF 또는 동영상 추가 (여러 파일 선택 가능)", folder,
+                                               f"GIF 또는 동영상 ({exts})")
+        if paths:
+            self.add_files(paths)
 
     def dragEnterEvent(self, a0):
         mime = a0.mimeData() if a0 else None
@@ -1120,18 +1203,83 @@ class Window(QWidget):
         mime = a0.mimeData() if a0 else None
         urls = mime.urls() if mime else []
         if urls and not self.busy():
-            self.load(urls[0].toLocalFile())
+            self.add_files([url.toLocalFile() for url in urls if url.isLocalFile()])
 
     def load(self, path):
         if self.busy():
             return
-        self.loader = MediaLoader(path)
+        self.items.clear()
+        self.add_files([path])
+
+    def add_files(self, paths):
+        if self.busy():
+            return
+        existing = {os.path.normcase(os.path.abspath(item.path)) for item in self.items}
+        added = []
+        for path in paths:
+            key = os.path.normcase(os.path.abspath(path))
+            if key not in existing:
+                existing.add(key)
+                added.append(os.path.normpath(os.path.abspath(path)))
+        if not added:
+            return
+        selected = len(self.items)
+        self.items.extend(QueueItem(path) for path in added)
+        self.render_queue(selected)
+        self.select_item(selected)
+        self.loader = MediaLoader(added)
         self.loader.done.connect(self.on_loaded)
+        self.loader.item_failed.connect(self.item_load_failed)
         self.loader.failed.connect(self.load_failed)
         self.loader.finished.connect(self.load_finished)
         self.loader.start()
         self.say("파일 정보를 읽는 중...")
         self.refresh()
+
+    def selected_item(self) -> QueueItem | None:
+        index = self.queue.currentIndex()
+        return self.items[index] if 0 <= index < len(self.items) else None
+
+    def render_queue(self, selected: int | None = None):
+        index = self.queue.currentIndex() if selected is None else selected
+        self.queue.blockSignals(True)
+        self.queue.clear()
+        for number, item in enumerate(self.items, 1):
+            self.queue.addItem(f"{number}. [{item.state}] {os.path.basename(item.path)}")
+            self.queue.setItemData(number - 1, item.path + ("\n" + item.error if item.error else ""),
+                                   Qt.ItemDataRole.ToolTipRole)
+        self.queue.setCurrentIndex(min(max(index, 0), len(self.items) - 1))
+        self.queue.blockSignals(False)
+
+    def remove_item(self):
+        if self.busy():
+            return
+        index = self.queue.currentIndex()
+        if 0 <= index < len(self.items):
+            del self.items[index]
+            self.render_queue(index)
+            self.select_item(self.queue.currentIndex())
+
+    def select_item(self, index):
+        item = self.selected_item()
+        if item is not None and item.media is not None:
+            self.show_media(item)
+            return
+        self.src = ""
+        self.result = None
+        self.vinfo = None
+        self.preview.set_still(None)
+        self.info.setText(item.path if item else "파일을 선택하면 크기와 재생 정보를 표시합니다.")
+        self.update_dest()
+        if item and item.error:
+            self.say(item.error, error=True)
+        self.refresh()
+
+    def item_load_failed(self, path, message):
+        for item in self.items:
+            if item.path == path:
+                item.error, item.state = message, "읽기 실패"
+        self.render_queue()
 
     def load_finished(self):
         if self.loader:
@@ -1139,6 +1287,10 @@ class Window(QWidget):
             self.loader.deleteLater()
             self.loader = None
         if not self._closing:
+            self.render_queue()
+            if len(self.items) > 1:
+                count = sum(item.media is not None for item in self.items)
+                self.say(f"{count}/{len(self.items)}개 파일 준비. 목록에서 파일별 구간을 정한 뒤 연속 만들기를 누르세요.")
             self.refresh()
 
     def load_failed(self, message):
@@ -1147,6 +1299,22 @@ class Window(QWidget):
 
     def on_loaded(self, path, media):
         if self._closing:
+            return
+        item = next((item for item in self.items if item.path == path), None)
+        if item is None:
+            return
+        item.media = media
+        if isinstance(media, video.VideoInfo):
+            item.clip = (0.0, min(media.duration, DEFAULT_CLIP_SECONDS), video.DEFAULT_FPS)
+        self.preferences["last_open_dir"] = os.path.dirname(path)
+        self.save_preferences()
+        if item is self.selected_item():
+            self.show_media(item)
+        self.render_queue()
+
+    def show_media(self, item: QueueItem):
+        path, media = item.path, item.media
+        if media is None:
             return
         if isinstance(media, video.VideoInfo):
             info = media
@@ -1157,7 +1325,7 @@ class Window(QWidget):
             w, h, n, ms = media
             detail = f"{n}프레임 · {ms / 1000:.1f}초"
         self.src = path
-        self.result = None
+        self.result = item.result
         self.vinfo = info
         pl = core.plan(w, h)
         if info is None:
@@ -1168,13 +1336,21 @@ class Window(QWidget):
                 spin.blockSignals(True)
                 spin.setRange(0.0, info.duration)
                 spin.blockSignals(False)
-            self.bar.set_range(info.duration, 0.0, min(info.duration, DEFAULT_CLIP_SECONDS))
+            start, end, fps = item.clip or (0.0, min(info.duration, DEFAULT_CLIP_SECONDS), video.DEFAULT_FPS)
+            self.fps.blockSignals(True)
+            self.fps.setCurrentIndex(max(0, self.fps.findData(fps)))
+            self.fps.blockSignals(False)
+            self.bar.set_range(info.duration, start, end)
             self.sync_clip()
-            self.grabber.ask(path, 0.0)
+            self.grabber.ask(path, start)
         self.info.setText(f"{os.path.basename(path)}  ·  {w}×{h}  ·  {detail}  →  "
                           f"조각 {core.SLICE_W}×{pl.total_h} × {core.N}개")
         self.update_dest()
-        if info is not None:
+        if item.error:
+            self.say(item.error, error=True)
+        elif item.result:
+            self.say("완료: " + core.compression_summary(item.result))
+        elif info is not None:
             self.say("막대의 손잡이를 끌거나 시각을 입력해서 사용할 구간을 정한 뒤 '5조각 만들기'를 누르세요.")
         else:
             self.say("원본이 작아서 확대됩니다. 화질이 떨어질 수 있습니다." if pl.upscaled else "")
@@ -1182,20 +1358,44 @@ class Window(QWidget):
 
     # ---------- 만들기 ----------
     def start(self):
-        if not self.src or self.busy():
+        if self.busy():
             return
-        clip = self.clip()
-        out = self.dest()
-        if os.path.isdir(out) and os.listdir(out):
-            a = QMessageBox.question(self, APP_NAME, "이미 만든 조각이 있습니다. 덮어쓸까요?\n" + out)
+        self.batch_items = [item for item in self.items if item.media is not None]
+        if not self.batch_items:
+            return
+        jobs = []
+        for item in self.batch_items:
+            if isinstance(item.media, video.VideoInfo) and item.clip:
+                try:
+                    video.check_clip(item.media, item.clip[0], item.clip[1])
+                except core.SliceError as exc:
+                    self.say(f"{os.path.basename(item.path)}: {exc}", error=True)
+                    return
+            out = (os.path.join(self.out_parent, core.stem_for(item.path, item.clip) + "_steam")
+                   if self.out_parent else core.default_out_dir(item.path, item.clip))
+            jobs.append((item.path, out, item.clip))
+        destinations = [os.path.normcase(os.path.abspath(job[1])) for job in jobs]
+        if len(set(destinations)) != len(destinations):
+            self.say("같은 이름과 구간의 파일은 저장 폴더가 겹칩니다. 원본 파일 이름을 다르게 지정해 주세요.", error=True)
+            return
+        overwrites = [out for _, out, _ in jobs if os.path.isdir(out) and os.listdir(out)]
+        if overwrites:
+            a = QMessageBox.question(self, APP_NAME, "이미 만든 조각이 있습니다. 해당 결과를 덮어쓸까요?\n" + "\n".join(overwrites))
             if a != QMessageBox.StandardButton.Yes:
                 return
+        for item in self.batch_items:
+            item.result, item.error, item.state = None, "", "대기"
         self.result = None
-        self.worker = Worker(self.src, out, self.lossy.value(), clip)
+        src, out, clip = jobs[0]
+        self.worker = Worker(src, out, self.lossy.value(), clip, jobs=jobs if len(jobs) > 1 else None)
+        self.worker.active.connect(self.on_item_active)
+        self.worker.item_done.connect(self.on_item_done)
+        self.worker.item_failed.connect(self.on_item_failed)
         self.worker.stage.connect(lambda s: self.say("진행 중: " + s))
         self.worker.done.connect(self.on_done)
         self.worker.failed.connect(lambda m: self.finish(m, error=True))
-        self.worker.cancelled.connect(lambda: self.finish("취소했습니다."))
+        self.worker.cancelled.connect(self.on_cancelled)
+        self.on_item_active(0)
         self.worker.start()
         self.refresh()
 
@@ -1210,9 +1410,52 @@ class Window(QWidget):
     def on_done(self, result):
         if self._closing:
             return
+        if isinstance(result, BatchReport):
+            if result.results:
+                self.on_item_active(result.results[-1][0])
+            text = f"연속 처리 완료: 성공 {len(result.results)}개 · 실패 {len(result.errors)}개. 목록에서 결과를 확인하세요."
+            if result.errors:
+                text += "\n" + "\n".join(f"{os.path.basename(self.batch_items[i].path)}: {message}" for i, message in result.errors)
+            self.finish(text, error=bool(result.errors))
+            if result.results:
+                self.open_folder()
+            return
+        if self.batch_items:
+            item = self.batch_items[0]
+            item.result, item.state = result, "완료"
         self.result = result
-        self.finish(f"완료했습니다 (압축 {result.lossy}). 저장한 폴더를 탐색기로 열었습니다.")
+        self.finish(f"완료했습니다 ({core.compression_summary(result)}). 저장한 폴더를 탐색기로 열었습니다.")
         self.open_folder()
+
+    def on_item_active(self, index):
+        if self._closing:
+            return
+        item = self.batch_items[index]
+        if item.result is None and not item.error:
+            item.state = "처리 중"
+        selected = next(i for i, candidate in enumerate(self.items) if candidate is item)
+        self.render_queue(selected)
+        self.select_item(selected)
+
+    def on_item_done(self, index, result):
+        item = self.batch_items[index]
+        item.result, item.state = result, "완료"
+        if item is self.selected_item():
+            self.result = result
+        self.render_queue()
+
+    def on_item_failed(self, index, message):
+        item = self.batch_items[index]
+        item.error, item.state = message, "실패"
+        self.render_queue()
+
+    def on_cancelled(self):
+        completed = [item for item in self.batch_items if item.result is not None]
+        for item in self.batch_items:
+            if item.state == "처리 중":
+                item.state = "대기"
+        text = f"취소했습니다. 완료한 {len(completed)}개 결과는 보존했습니다." if len(self.batch_items) > 1 else "취소했습니다."
+        self.finish(text)
 
     def finish(self, text, error=False):
         if self.worker:
@@ -1221,6 +1464,10 @@ class Window(QWidget):
             self.worker = None
         if self._closing:
             return
+        for item in self.batch_items:
+            if item.state == "처리 중":
+                item.state, item.error = "실패" if error else "대기", text if error else ""
+        self.render_queue()
         self.say(text, error)
         self.refresh()
 
