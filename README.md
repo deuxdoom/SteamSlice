@@ -17,7 +17,7 @@
 </p>
 <p align="center">현재 공개 버전: <a href="https://github.com/deuxdoom/SteamSlice/releases/tag/v1.0.0"><b>v1.0.0</b></a> · Windows 10/11 x64<br>ZIP 전체를 풀고 SteamSlice.exe를 실행하세요. bin 폴더도 함께 있어야 합니다.</p>
 
-<p align="center"><a href="#빠른-시작">빠른 시작</a> · <a href="#주요-기능">주요 기능</a> · <a href="#설정과-트레이">설정과 트레이</a> · <a href="#업데이트">업데이트</a> · <a href="CHANGELOG.md">변경 기록</a></p>
+<p align="center"><a href="#빠른-시작">빠른 시작</a> · <a href="#주요-기능">주요 기능</a> · <a href="#설정과-트레이">설정과 트레이</a> · <a href="#업데이트">업데이트</a> · <a href="CHANGELOG.md">변경 기록</a> · <a href="#license">라이선스</a></p>
 
 ## 📌 소개
 
@@ -143,10 +143,31 @@ python tests/verify.py
 
 핵심 처리 검증에는 저장소에 포함되지 않은 시험용 `GIFs/output3.gif`가 필요합니다. 업데이트 검증은 별도 미디어 없이 실행할 수 있습니다.
 
-## 📚 문서와 구성 요소
+## 📚 문서
 
 - [변경 기록](CHANGELOG.md) · [GitHub 릴리스](https://github.com/deuxdoom/SteamSlice/releases) · [소개 페이지](https://deuxdoom.github.io/SteamSlice/)
-- [타사 구성 요소와 라이선스](THIRD_PARTY_NOTICES.md)
+
+<a id="license"></a>
+
+## 📜 라이선스 및 저작권
+
+**Copyright © 2026 deuxdoom.**
+
+| 항목 | 내용 |
+| --- | --- |
+| 배포 형태 | 오픈소스 (GPL-3.0 라이선스) |
+| 소스 코드 | 공개 |
+
+- **허용:** 누구나 무료로 사용·복제·수정·배포할 수 있으며, 상업적으로 이용할 수도 있습니다.
+- **조건:** 실행 파일이나 수정한 버전을 배포할 때는 GPL-3.0 조건을 그대로 적용하고 해당 소스 코드를 함께 제공해야 합니다. 소프트웨어는 어떠한 보증 없이 있는 그대로 제공됩니다.
+- **전문:** [LICENSE](LICENSE)
+
+### 제3자 구성 요소
+
+함께 배포하는 제3자 구성 요소는 각자의 라이선스를 따르며, 위 조건은 그 라이선스가 부여하는 권리를 제한하지 않습니다. 구성 요소와 라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 정리했습니다.
+
 - 앱 아이콘은 Microsoft Fluent UI System Icons를 용도별로 색칠했으며, GitHub 링크는 공식 Octicon을 사용합니다.
 
-SteamSlice는 Valve 및 Steam과 관련이 없는 비공식 도구입니다. Steam은 Valve Corporation의 상표입니다.
+### 상표
+
+Steam은 Valve Corporation의 상표입니다. SteamSlice는 독립적으로 만든 비공식 프로그램이며, 해당 기업과 제휴하거나 승인을 받지 않았습니다.
